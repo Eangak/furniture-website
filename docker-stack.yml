@@ -1,0 +1,69 @@
+# Deployed with `docker stack deploy` on your EXISTING swarm (1 manager +
+# 2 workers) -- this project assumes the cluster is already up.
+#
+# api1/api2/api3 use images already on Docker Hub, no build needed. nginx
+# is different: it needs a custom nginx.conf baked in, so unlike the
+# other three it's built from nginx/Dockerfile and pushed to
+# krolnoeurnrpisb/apilb-nginx before this file will deploy successfully.
+# See the README for the one-time (and after-every-edit) build+push step.
+# Swarm mode ignores any `build:` key here -- an image reference is all
+# Swarm ever sees, the build happens beforehand on your own machine.
+
+  
+services:
+  api1:
+    image: eangak/furniture-website:latest
+    networks:
+      - frontend
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+  api2:
+    image: eangak/furniture-website:latest
+    networks:
+      - frontend
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+  api3:
+    image: eangak/furniture-website:latest
+    networks:
+      - frontend
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+  nginx:
+    image: eangak/furniture-website:latest
+    ports:
+      - target: 80
+        published: 8081
+        protocol: tcp
+        mode: ingress
+    networks:
+      - frontend
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+networks:
+  frontend:
+    driver: overlay
