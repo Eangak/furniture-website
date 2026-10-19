@@ -194,14 +194,12 @@ pipeline {
                     sh '''
                         set -eu
 
-                        REMOTE="${SWARM_MANAGER_USER}@${SWARM_MANAGER_HOST}"
+                        echo "SSH identities loaded by Jenkins:"
+                        ssh-add -l
 
-                        ssh -o StrictHostKeyChecking=accept-new \
-                          "$REMOTE" \
-                          "docker stack services '$STACK_NAME' &&
-                           docker service ps \
-                             '${STACK_NAME}_furniture-website' \
-                             --no-trunc"
+                        ssh -o BatchMode=yes \
+                            ubuntu@52.207.224.147 \
+                            'hostname && docker node ls'
                     '''
                 }
             }
