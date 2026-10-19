@@ -57,13 +57,8 @@ pipeline {
             steps {
                 deleteDir()
 
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "refs/tags/${params.GIT_TAG}"]],
-                    userRemoteConfigs: [[
-                        url: "${env.GITHUB_REPOSITORY}"
-                    ]]
-                ])
+                git branch:'main',
+                    url: 'https://github.com/Eangak/Furniture-Website.git'
 
                 sh '''
                     set -eu
