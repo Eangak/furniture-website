@@ -24,7 +24,7 @@ pipeline {
         ECR_REGISTRY      = '254209146027.dkr.ecr.us-east-1.amazonaws.com'
 
         // CHANGE THIS to your Swarm manager's actual reachable IP or DNS name.
-        SWARM_MANAGER_HOST = 'REPLACE_WITH_MANAGER_IP'
+        SWARM_MANAGER_HOST = '52.207.224.147'
         SWARM_MANAGER_USER = 'ubuntu'
 
         STACK_NAME = 'furniture'
