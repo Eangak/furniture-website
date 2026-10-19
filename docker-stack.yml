@@ -51,7 +51,7 @@ services:
     image: eangak/furniture-website:latest
     ports:
       - target: 80
-        published: 8081
+        published: 80
         protocol: tcp
         mode: ingress
     networks:
