@@ -9,14 +9,10 @@
 # Swarm mode ignores any `build:` key here -- an image reference is all
 # Swarm ever sees, the build happens beforehand on your own machine.
 
+  
 services:
-  furniture-website:
-    image: IMAGE_PLACEHOLDER
-    ports:
-      - target: 80
-        published: 80
-        protocol: tcp
-        mode: ingress
+  api1:
+    image: eangak/furniture-website:latest
     networks:
       - frontend
     deploy:
@@ -26,9 +22,45 @@ services:
       update_config:
         parallelism: 1
         delay: 5s
-        order: start-first
-        failure_action: rollback
-      rollback_config:
+
+  api2:
+    image: eangak/furniture-website:latest
+    networks:
+      - frontend
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+  api3:
+    image: eangak/furniture-website:latest
+    networks:
+      - frontend
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 5s
+
+  nginx:
+    image: eangak/furniture-website:latest
+    ports:
+      - target: 80
+        published: 8081
+        protocol: tcp
+        mode: ingress
+    networks:
+      - frontend
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
         parallelism: 1
         delay: 5s
 
