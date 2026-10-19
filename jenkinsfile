@@ -7,128 +7,94 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        string(
+            name: 'GIT_TAG',
+            defaultValue: '1.0.0',
+            description: 'Existing Git tag to build and deploy, e.g. 1.0.0 or v1.0.0'
+        )
+    }
+
     environment {
         GITHUB_REPOSITORY = 'https://github.com/Eangak/Furniture-Website.git'
 
-        AWS_REGION       = 'us-east-1'
-        AWS_ACCOUNT_ID   = '254209146027'
-        ECR_REPOSITORY   = 'furniture-website'
-        ECR_REGISTRY     = '254209146027.dkr.ecr.us-east-1.amazonaws.com'
+        AWS_REGION        = 'us-east-1'
+        AWS_ACCOUNT_ID    = '254209146027'
+        ECR_REPOSITORY    = 'furniture-website'
+        ECR_REGISTRY      = '254209146027.dkr.ecr.us-east-1.amazonaws.com'
 
-        // Replace with the reachable public IP or DNS name
-        // of your EXISTING Swarm manager.
+        // CHANGE THIS to your Swarm manager's actual reachable IP or DNS name.
         SWARM_MANAGER_HOST = 'REPLACE_WITH_MANAGER_IP'
+        SWARM_MANAGER_USER = 'ubuntu'
+
         STACK_NAME = 'furniture'
-    }
-
-    parameters {
-        gitParameter(
-            name: 'TAG',
-            type: 'PT_TAG',
-            defaultValue: '',
-            description: 'Git tag to build and deploy (optional).'
-        )
-
-        gitParameter(
-            name: 'BRANCH',
-            type: 'PT_BRANCH',
-            defaultValue: 'origin/main',
-            description: 'Git branch to use when no tag is selected.'
-        )
-
-        choice(
-            name: 'ACTION',
-            choices: ['build', 'deploy', 'rollback'],
-            description: 'Build, deploy, or roll back the application.'
-        )
-
-        string(
-            name: 'ROLLBACK_TAG',
-            defaultValue: '',
-            description: 'Existing ECR image tag to deploy for rollback, e.g. 12.'
-        )
+        STACK_FILE = 'docker-stack.yml'
     }
 
     stages {
         stage('Initialize') {
             steps {
                 script {
-                    def selectedTag
+                    env.IMAGE_TAG = params.GIT_TAG.trim()
 
-                    if (params.ACTION == 'rollback') {
-                        selectedTag = params.ROLLBACK_TAG?.trim()
-
-                        if (!selectedTag) {
-                            error('For rollback, provide ROLLBACK_TAG.')
-                        }
-                    } else {
-                        selectedTag = params.TAG?.trim() ?: env.BUILD_NUMBER
+                    if (!(env.IMAGE_TAG ==~ /[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}/)) {
+                        error("Invalid Docker image tag: ${env.IMAGE_TAG}")
                     }
 
-                    if (!(selectedTag ==~ /[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}/)) {
-                        error("Invalid Docker image tag: ${selectedTag}")
+                    if (env.SWARM_MANAGER_HOST == 'REPLACE_WITH_MANAGER_IP') {
+                        error('Set SWARM_MANAGER_HOST to your actual Swarm manager IP or DNS name.')
                     }
 
-                    env.IMAGE_TAG = selectedTag
-                    env.ECR_IMAGE =
-                        "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${selectedTag}"
+                    env.FULL_IMAGE =
+                        "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.IMAGE_TAG}"
 
-                    echo "Action: ${params.ACTION}"
-                    echo "Image: ${env.ECR_IMAGE}"
+                    echo "Image to publish: ${env.FULL_IMAGE}"
                 }
             }
         }
 
         stage('Checkout Code') {
             steps {
-                script {
-                    def gitRef
+                deleteDir()
 
-                    if (params.ACTION != 'rollback' && params.TAG?.trim()) {
-                        gitRef = "refs/tags/${params.TAG.trim()}"
-                    } else {
-                        gitRef = params.BRANCH?.trim() ?: '*/main'
-                    }
-
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: gitRef]],
-                        userRemoteConfigs: [[
-                            url: env.GITHUB_REPOSITORY
-                        ]]
-                    ])
-                }
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "refs/tags/${params.GIT_TAG}"]],
+                    userRemoteConfigs: [[
+                        url: "${env.GITHUB_REPOSITORY}"
+                    ]]
+                ])
 
                 sh '''
                     set -eu
-                    test -f Dockerfile
-                    test -f docker-stack.yml
-                    echo "Source files verified."
+                    echo "Checked out commit:"
+                    git rev-parse HEAD
+
+                    test -f Dockerfile || {
+                        echo "ERROR: Dockerfile not found in repository root"
+                        exit 1
+                    }
+
+                    test -f docker-stack.yml || {
+                        echo "ERROR: docker-stack.yml not found"
+                        exit 1
+                    }
                 '''
             }
         }
 
-        stage('Build Image') {
-            when {
-                expression {
-                    params.ACTION in ['build', 'deploy']
-                }
-            }
+        stage('Build Docker Image') {
             steps {
                 sh '''
                     set -eu
-                    docker build -t "$ECR_IMAGE" .
-                    docker image inspect "$ECR_IMAGE" >/dev/null
+                    docker build --pull \
+                      -t "$FULL_IMAGE" .
+                    docker image inspect "$FULL_IMAGE" >/dev/null
                 '''
             }
         }
 
         stage('Authenticate to ECR') {
-            when {
-                expression {
-                    params.ACTION in ['build', 'deploy']
-                }
-            }
             steps {
                 withCredentials([
                     string(
@@ -141,12 +107,13 @@ pipeline {
                     )
                 ]) {
                     sh '''
-                        set +x
                         set -eu
+                        set +x
 
                         export AWS_DEFAULT_REGION="$AWS_REGION"
+                        export AWS_PAGER=""
 
-                        aws sts get-caller-identity >/dev/null
+                        aws sts get-caller-identity
 
                         aws ecr get-login-password \
                           --region "$AWS_REGION" |
@@ -159,99 +126,87 @@ pipeline {
         }
 
         stage('Push Image to ECR') {
-            when {
-                expression {
-                    params.ACTION in ['build', 'deploy']
-                }
-            }
             steps {
                 sh '''
                     set -eu
-                    docker push "$ECR_IMAGE"
+                    docker push "$FULL_IMAGE"
                 '''
             }
         }
 
-        stage('Prepare Stack') {
-            when {
-                expression {
-                    params.ACTION in ['deploy', 'rollback']
-                }
-            }
+        stage('Prepare Stack File') {
             steps {
                 sh '''
                     set -eu
 
-                    grep -q 'IMAGE_PLACEHOLDER' docker-stack.yml
+                    grep -q 'IMAGE_PLACEHOLDER' "$STACK_FILE" || {
+                        echo "ERROR: IMAGE_PLACEHOLDER is missing from $STACK_FILE"
+                        exit 1
+                    }
 
-                    sed -i "s|IMAGE_PLACEHOLDER|${ECR_IMAGE}|g" \
-                      docker-stack.yml
+                    sed -i \
+                      "s|IMAGE_PLACEHOLDER|$FULL_IMAGE|g" \
+                      "$STACK_FILE"
 
-                    docker stack config -c docker-stack.yml >/dev/null
+                    if grep -q 'IMAGE_PLACEHOLDER' "$STACK_FILE"; then
+                        echo "ERROR: Image placeholder was not fully replaced"
+                        exit 1
+                    fi
 
-                    echo "Stack configuration validated."
-                    echo "Deploying image: $ECR_IMAGE"
+                    echo "Prepared stack configuration:"
+                    docker stack config -c "$STACK_FILE"
                 '''
             }
         }
 
-        stage('Deploy to Swarm') {
-            when {
-                expression {
-                    params.ACTION in ['deploy', 'rollback']
-                }
-            }
+        stage('Deploy to Docker Swarm') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'swarm-manager-ssh',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+                sshagent(credentials: ['swarm-manager-ssh']) {
                     sh '''
                         set -eu
 
-                        scp -i "$SSH_KEY" \
-                          -o StrictHostKeyChecking=accept-new \
-                          docker-stack.yml \
-                          "${SSH_USER}@${SWARM_MANAGER_HOST}:/tmp/furniture-stack.yml"
+                        REMOTE="${SWARM_MANAGER_USER}@${SWARM_MANAGER_HOST}"
+                        REMOTE_DIR="/home/${SWARM_MANAGER_USER}/furniture-website"
 
-                        ssh -i "$SSH_KEY" \
-                          -o StrictHostKeyChecking=accept-new \
-                          "${SSH_USER}@${SWARM_MANAGER_HOST}" \
-                          "set -eu &&
-                           aws ecr get-login-password --region ${AWS_REGION} |
-                             docker login --username AWS --password-stdin ${ECR_REGISTRY} &&
-                           docker stack deploy --with-registry-auth \
-                             -c /tmp/furniture-stack.yml ${STACK_NAME} &&
-                           docker stack services ${STACK_NAME}"
+                        ssh -o StrictHostKeyChecking=accept-new \
+                          "$REMOTE" \
+                          "mkdir -p '$REMOTE_DIR'"
+
+                        scp -o StrictHostKeyChecking=accept-new \
+                          "$STACK_FILE" \
+                          "$REMOTE:$REMOTE_DIR/docker-stack.yml"
+
+                        ssh -o StrictHostKeyChecking=accept-new \
+                          "$REMOTE" \
+                          "AWS_DEFAULT_REGION='$AWS_REGION' \
+                           aws ecr get-login-password \
+                             --region '$AWS_REGION' |
+                           docker login \
+                             --username AWS \
+                             --password-stdin '$ECR_REGISTRY' &&
+                           docker stack deploy \
+                             --with-registry-auth \
+                             -c '$REMOTE_DIR/docker-stack.yml' \
+                             '$STACK_NAME'"
                     '''
                 }
             }
         }
 
         stage('Verify Deployment') {
-            when {
-                expression {
-                    params.ACTION in ['deploy', 'rollback']
-                }
-            }
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'swarm-manager-ssh',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+                sshagent(credentials: ['swarm-manager-ssh']) {
                     sh '''
                         set -eu
 
-                        ssh -i "$SSH_KEY" \
-                          -o StrictHostKeyChecking=accept-new \
-                          "${SSH_USER}@${SWARM_MANAGER_HOST}" \
-                          "docker service ps ${STACK_NAME}_furniture-website"
+                        REMOTE="${SWARM_MANAGER_USER}@${SWARM_MANAGER_HOST}"
+
+                        ssh -o StrictHostKeyChecking=accept-new \
+                          "$REMOTE" \
+                          "docker stack services '$STACK_NAME' &&
+                           docker service ps \
+                             '${STACK_NAME}_furniture-website' \
+                             --no-trunc"
                     '''
                 }
             }
@@ -260,12 +215,15 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline completed successfully for action: ${params.ACTION}"
-            echo "Image: ${env.ECR_IMAGE}"
+            echo "Pipeline completed. Published and deployed: ${env.FULL_IMAGE}"
         }
 
         failure {
-            echo 'Pipeline failed. Check the stage logs for the error.'
+            echo 'Pipeline failed. Review the stage logs before retrying.'
+        }
+
+        always {
+            sh 'docker logout "$ECR_REGISTRY" >/dev/null 2>&1 || true'
         }
     }
 }
