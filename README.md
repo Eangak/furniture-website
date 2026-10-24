@@ -164,3 +164,36 @@ Example image naming format:
 254209146027.dkr.ecr.us-east-1.amazonaws.com/furniture-website:<version>
 
 Replace <version> with the actual image tag selected for the deployment.
+
+
+** 11. Project Files**
+
+The repository is expected to include the following files:
+
+furniture-website/
+├── index.html
+├── about.html
+├── blog.html
+├── cart.html
+├── checkout.html
+├── contact.html
+├── Dockerfile
+├── docker-stack.yml
+├── Jenkinsfile
+└── README.md
+
+
+**12. Deployment and Version Management**
+
+Jenkins is used to automate the image build and deployment workflow. Versioned images help identify which application release is deployed.
+
+Before deploying a new version, verify that the image exists in ECR and that the Swarm service is healthy. Keep a known-good image version available so that a previous release can be redeployed if necessary.
+
+
+📌** 13. Project Status**
+
+Project: Furniture Website
+Deployment platform: AWS EC2 with Docker Swarm
+Container registry: Amazon ECR
+CI/CD tool: Jenkins
+Source-code hosting: GitHub
