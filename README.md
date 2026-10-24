@@ -1,4 +1,4 @@
-**Furniture Website — Docker Swarm & AWS CI/CD Project**
+****Furniture Website — Docker Swarm & AWS CI/CD Project****
 
 **1. Project Overview**
 
